@@ -8,6 +8,7 @@
 
 import { writeFileSync } from 'node:fs';
 import { execFileSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 const TIMEOUT = 30_000;
 
@@ -102,20 +103,30 @@ for (const [label, fn] of SOURCES) {
 
 // --- placeholder rejection ----------------------------------------------
 //
-// Agencies keep a camera "available" while serving a stand-in image: TfL sends
-// a grey "camera in use keeping London moving" card and a white "Temporarily
-// Unavailable" one. These load with HTTP 200, so onerror never fires, and they
-// are the same dimensions as real frames, so size will not separate them. They
-// are not byte-identical either — the pixels match but the files differ.
+// Agencies keep a camera marked "available" while serving a stand-in image.
+// Caltrans sends a white "Temporarily Unavailable" card, TfL a grey "camera in
+// use keeping London moving" one. They arrive with HTTP 200, so onerror never
+// fires; they are the same dimensions as real frames, so size does not separate
+// them; and they are not byte-identical between cameras, so hashing the file
+// does not either.
 //
-// What does separate them is colour. They are synthetic text on a flat ground,
-// so they are perfectly greyscale, while a real street scene always has some
-// colour in it. Measured across all 798 TfL cameras: placeholders sit at
-// exactly 0.00 mean channel spread, the next real camera at 2.16, median 11.56.
-// Caltrans shows the same gap with no monochrome-at-night false positives.
+// Two signals catch them, and both need the pixels — which the browser cannot
+// read, because these hosts send no CORS headers and the canvas would be
+// tainted. So it happens here, at build time, with ffmpeg.
 //
-// The browser cannot do this — S3 sends no CORS headers, so the canvas would be
-// tainted and the pixels unreadable. It has to happen here, at build time.
+//   1. DUPLICATE FINGERPRINTS. Two real cameras never produce an identical 8x8
+//      downsample; two cameras showing the same placeholder always do. On the
+//      first full run this caught 514 of 2,924 cameras, the largest single
+//      group being 155 identical images.
+//
+//   2. FLAT GREYSCALE. Catches a placeholder that happens to be showing on only
+//      one camera, where there is no duplicate to pair it with. Synthetic text
+//      on a flat ground measures 0.00 mean channel spread; the next real camera
+//      measures 2.16, against a median of 11.56.
+//
+// Signal 1 does the heavy lifting; signal 2 is the backstop. An earlier version
+// had only signal 2 and missed every Caltrans placeholder, because that card is
+// white with BLUE text and therefore not greyscale at all.
 
 const FFMPEG = process.env.FFMPEG ?? 'ffmpeg';
 const SAT_THRESHOLD = 1.0;
@@ -133,7 +144,7 @@ function haveFfmpeg() {
  * the worker pool below into a serial queue and takes the run from one minute
  * to well over ten.
  */
-function saturationOf(buf) {
+function downsample(buf) {
   const N = 8;
   return new Promise((resolve) => {
     const ff = spawn(FFMPEG, [
@@ -143,14 +154,17 @@ function saturationOf(buf) {
     const chunks = [];
     ff.stdout.on('data', (d) => chunks.push(d));
     ff.on('error', () => resolve(null));
-    ff.on('close', () => resolve(measure(Buffer.concat(chunks), N)));
+    ff.on('close', () => {
+      const px = Buffer.concat(chunks);
+      resolve(px.length >= N * N * 3 ? px : null);
+    });
     ff.stdin.on('error', () => {});
     ff.stdin.end(buf);
   });
 }
 
-function measure(px, N) {
-  if (px.length < N * N * 3) return null;
+/** Mean per-pixel colour spread. 0 means a perfectly greyscale image. */
+function saturationOf(px, N = 8) {
   let sum = 0;
   for (let i = 0; i < N * N; i++) {
     const r = px[i * 3], g = px[i * 3 + 1], b = px[i * 3 + 2];
@@ -164,8 +178,9 @@ async function dropPlaceholders(list) {
     console.warn('  ffmpeg not found — skipping placeholder rejection');
     return list;
   }
-  const keep = [];
-  let dropped = 0, unreachable = 0;
+
+  const measured = [];
+  let unreachable = 0;
   const queue = [...list];
   await Promise.all(Array.from({ length: 24 }, async () => {
     while (queue.length) {
@@ -173,15 +188,33 @@ async function dropPlaceholders(list) {
       try {
         const res = await fetch(c.img, { signal: AbortSignal.timeout(TIMEOUT) });
         if (!res.ok) { unreachable++; continue; }
-        const sat = await saturationOf(Buffer.from(await res.arrayBuffer()));
+        const px = await downsample(Buffer.from(await res.arrayBuffer()));
         // an unreadable image is kept: better a rare bad tile than dropping a
         // working camera because ffmpeg choked on one frame
-        if (sat !== null && sat < SAT_THRESHOLD) { dropped++; continue; }
-        keep.push(c);
+        if (!px) { measured.push({ cam: c, print: null, sat: null }); continue; }
+        measured.push({
+          cam: c,
+          print: createHash('sha1').update(px).digest('hex'),
+          sat: saturationOf(px),
+        });
       } catch { unreachable++; }
     }
   }));
-  console.log(`  rejected ${dropped} placeholder images, ${unreachable} unreachable`);
+
+  const seen = new Map();
+  for (const m of measured) {
+    if (m.print) seen.set(m.print, (seen.get(m.print) ?? 0) + 1);
+  }
+
+  let dupes = 0, flat = 0;
+  const keep = [];
+  for (const m of measured) {
+    if (m.print && seen.get(m.print) > 1) { dupes++; continue; }
+    if (m.sat !== null && m.sat < SAT_THRESHOLD) { flat++; continue; }
+    keep.push(m.cam);
+  }
+
+  console.log(`  rejected ${dupes} duplicate-frame placeholders, ${flat} flat greyscale, ${unreachable} unreachable`);
   return keep;
 }
 
