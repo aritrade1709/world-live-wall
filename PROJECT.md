@@ -2,7 +2,7 @@
 
 **Pitch:** 4106 public traffic cameras from four countries, live, on one page.
 **Status:** `built`
-**Live:** https://aritficialintelligence.com/world-live-wall/ — **deployed but unreachable, DNS blocked** (see below)
+**Live:** https://aritrade1709.github.io/world-live-wall/
 **Repo:** https://github.com/aritrade1709/world-live-wall
 **Scores:** IMP 5/5 · UNH 4/5 · Effort M
 
@@ -16,18 +16,7 @@ scheduler — viewport-gated, per-origin capped, phase-offset — not a grid of
 
 ## Next action
 
-**Blocked on DNS, and this blocks every future project too.** The Pages deploy
-succeeded, but `aritficialintelligence.com` resolves to GoDaddy parking
-(76.223.67.189 / 13.248.213.45) and serves a lander page. Because
-`aritrade1709.github.io` has that domain as its CNAME, GitHub 301s *every*
-project site there — so `aritrade1709.github.io/world-live-wall/` is dead too.
-
-Fix at GoDaddy DNS for `aritficialintelligence.com`:
-- Replace the two A records with the four GitHub Pages IPs:
-  185.199.108.153, 185.199.109.153, 185.199.110.153, 185.199.111.153
-- CNAME `www` -> `aritrade1709.github.io`
-
-Then: record the episode. `/make-episode` for script, deck and captions.
+Decide the globe/map view (see below), then `/make-episode`.
 
 ## Run it
 
@@ -41,6 +30,7 @@ pnpm cameras           # re-resolve catalogue from agencies
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-09-07 | Custom domain removed from the account | `aritficialintelligence.com` is no longer owned by Aritra and is now a parked page controlled by someone else. Its CNAME on `aritrade1709.github.io` was redirecting every Pages URL on the account to it. |
 | 2026-09-06 | GitHub Pages, not Cloudflare Pages (studio default) | Pure static, and `gh` is already authenticated with `workflow` scope — Cloudflare would have needed a second browser login from Aritra for no gain. Movable later. |
 | 2026-09-06 | Catalogue resolved at build time, committed | Agencies send no CORS headers on their JSON, so a static page cannot fetch the lists at runtime. Images are exempt from CORS. Also makes a clean clone work offline. |
 | 2026-09-06 | Catalogue fetched at runtime from `public/`, not imported | Bundling 4,106 cameras put 900 kB of JSON through the JS parser before first paint. Same-origin fetch: bundle went 902 kB → 5 kB. |
