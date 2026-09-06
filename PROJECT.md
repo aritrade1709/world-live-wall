@@ -1,6 +1,6 @@
 # 001 — World Live Wall
 
-**Pitch:** 2,947 public traffic cameras streaming live video, from London and California, on one page.
+**Pitch:** 2,924 public traffic cameras streaming live video, from London and California, on one page.
 **Status:** `built`
 **Live:** https://aritrade1709.github.io/world-live-wall/
 **Repo:** https://github.com/aritrade1709/world-live-wall
@@ -8,8 +8,8 @@
 
 ## The one hard part
 
-Browsers allow ~6 concurrent connections per origin on HTTP/1.1, and 2,149 of
-the 2,947 cameras — 73% — are on one host (`cwwp2.dot.ca.gov`). Naive refreshing
+Browsers allow ~6 concurrent connections per origin on HTTP/1.1, and 2,135 of
+the 2,924 cameras — 73% — are on one host (`cwwp2.dot.ca.gov`). Naive refreshing
 queues them six at a time: tiles arrive minutes stale and the tab stalls. The
 wall is therefore a request scheduler — viewport-gated, per-origin capped,
 phase-offset — not a grid of `<img>` tags.
@@ -30,6 +30,8 @@ pnpm cameras           # re-resolve catalogue from agencies
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-09-07 | Placeholder frames rejected at build time via ffmpeg | Agencies serve "camera in use" and "Temporarily Unavailable" cards with HTTP 200 at real frame dimensions, and the copies are not byte-identical, so neither onerror, size nor hashing catches them. They are pure greyscale (0.00 mean channel spread vs 2.16 for the next real camera, median 11.56). Browser cannot measure it — S3 sends no CORS headers, so the canvas is tainted. Rejected 21 on the last run. |
+| 2026-09-07 | Ontario 511 and NZ removed from the fetcher entirely | Every camera they returned was discarded by the video-only filter; keeping them only slowed the build. |
 | 2026-09-07 | Stills-only cameras dropped; video-capable only | Aritra's call. A wall of stills reads as stock photography. Cost: Ontario 511 and NZ leave entirely, so coverage narrows from four regions to two (London and California). The concurrency story got stronger, not weaker — 73% of what remains is on one origin. |
 | 2026-09-07 | Removed the per-tile LIVE badge | Once every camera streams, a badge on every tile carries no information and covers the picture. The header states it once. |
 | 2026-09-07 | Added video playback on click and hover | Stills alone read as stock photography and undercut the credibility of the whole thing. 2,753 cameras publish real video; TfL as mp4 loops, Caltrans as live HLS. |
@@ -45,6 +47,13 @@ pnpm cameras           # re-resolve catalogue from agencies
 | 2026-09-06 | Sources interleaved in the catalogue | Source-ordered, the first screen is 40 London side-streets. Interleaved, it spans four countries and several times of day — that simultaneity is the demo. |
 
 ## Known bugs / rough edges
+
+- `pnpm cameras` now takes a few minutes: it fetches and measures every image
+  through ffmpeg. Needs ffmpeg on PATH (or `FFMPEG=/path`); without it the
+  placeholder check is skipped with a warning rather than failing the build.
+- Placeholder rejection is a build-time snapshot. A camera that starts serving
+  a placeholder after the catalogue was built will show one until it is re-run.
+  Re-run `pnpm cameras` before a shoot.
 
 - The hls.js fallback is verified in Chrome by forcing `canPlayType` to deny
   native HLS. Not tested on a real Windows or Linux browser.
@@ -72,7 +81,7 @@ pnpm cameras           # re-resolve catalogue from agencies
 
 | Source | Free | Notes |
 |---|---|---|
-| Transport for London | yes, no key | 798 cameras; mp4 loop + still per camera, both on S3 |
-| Caltrans | yes, no key | 2,149 with HLS across 12 districts; single image origin, the concurrency bottleneck |
+| Transport for London | yes, no key | 789 cameras; mp4 loop + still per camera, both on S3 |
+| Caltrans | yes, no key | 2,135 with HLS across 12 districts; single image origin, the concurrency bottleneck |
 | ~~Ontario 511~~ | — | dropped 2026-09-07: stills only |
 | ~~NZ Transport Agency~~ | — | dropped 2026-09-07: stills only |

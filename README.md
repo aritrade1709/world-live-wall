@@ -1,6 +1,6 @@
 # World Live Wall
 
-> 2,947 public traffic cameras streaming live video, from London and California, on one page.
+> 2,924 public traffic cameras streaming live video, from London and California, on one page.
 
 **[Live demo](https://aritrade1709.github.io/world-live-wall/)** · Built in one session with [Claude Code](https://claude.com/claude-code), 6 September 2026
 
@@ -26,8 +26,8 @@ because an HLS handshake takes a second or two and a blank box reads as broken.
 ## The hard part
 
 The interesting problem here is not fetching cameras. It is that a browser allows
-roughly **six concurrent connections per origin** on HTTP/1.1, and 2,149 of these
-2,947 cameras — 73% of them — live on a single host, `cwwp2.dot.ca.gov`.
+roughly **six concurrent connections per origin** on HTTP/1.1, and 2,135 of these
+2,924 cameras — 73% of them — live on a single host, `cwwp2.dot.ca.gov`.
 
 Point `<img>` tags at all of them and the requests queue six at a time. Tiles arrive
 minutes stale, the tab stalls while the backlog drains, and — because every camera
@@ -41,7 +41,7 @@ So the wall is a scheduler, not a grid. Three rules:
    `rootMargin` decides which tiles are eligible; scrolling away cancels queued work
    for tiles that left the viewport.
 2. **Concurrency is capped per origin and globally** (4 and 24). Requests are keyed
-   by hostname, so a slow agency cannot starve a fast one — without this, all 798
+   by hostname, so a slow agency cannot starve a fast one — without this, all 789
    London cameras wait behind Caltrans' backlog.
 3. **Refreshes are spread across the interval.** Each tile gets a deterministic
    phase offset, so a screenful of 40 cameras refreshes as a steady trickle rather
@@ -61,6 +61,17 @@ Two smaller decisions worth noting:
   Images are exempt — an `<img>` tag is not a CORS request — so the build script
   resolves the catalogue, commits it, and the browser loads the pictures directly.
   This is also what lets the app run offline on a clean clone.
+- **Placeholder frames are rejected at build time.** Agencies keep a camera
+  marked "available" while serving a stand-in: TfL sends a grey *"camera in use
+  keeping London moving"* card and a white *"Temporarily Unavailable"* one. They
+  return HTTP 200, so `onerror` never fires; they are the same dimensions as real
+  frames; and they are not byte-identical, so hashing misses them. What separates
+  them is colour — they are synthetic text on a flat ground and measure exactly
+  **0.00** mean channel spread, where the next real camera measures 2.16 and the
+  median is 11.56. The browser cannot check this, because S3 sends no CORS
+  headers and the canvas would be tainted, so the build pipes every image through
+  ffmpeg and drops the flat ones. Last run rejected 21.
+
 - **Sources are interleaved.** Sorting by source would show 40 consecutive London
   side-streets on first paint. Interleaving means the first screen spans two
   continents and an eight-hour time difference at once — London in the evening
@@ -95,8 +106,8 @@ publishes video.
 
 | Source | Cameras | Region | Video |
 |---|---|---|---|
-| [Transport for London](https://api.tfl.gov.uk/) | 798 | London, UK | mp4 loops |
-| [Caltrans](https://cwwp2.dot.ca.gov/) | 2,149 | California, USA | live HLS |
+| [Transport for London](https://api.tfl.gov.uk/) | 789 | London, UK | mp4 loops |
+| [Caltrans](https://cwwp2.dot.ca.gov/) | 2,135 | California, USA | live HLS |
 
 Camera images are loaded directly from each agency and are not cached,
 proxied or restreamed by this project.

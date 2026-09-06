@@ -7,6 +7,7 @@
 // This is also what makes `pnpm dev` work on a clean clone with no network.
 
 import { writeFileSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
 
 const TIMEOUT = 30_000;
 
@@ -16,11 +17,6 @@ async function getText(url) {
   return res.text();
 }
 const getJSON = async (url) => JSON.parse(await getText(url));
-
-const tag = (xml, name) => {
-  const m = xml.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`));
-  return m ? m[1] : null;
-};
 
 const num = (v) => {
   const n = typeof v === 'number' ? v : parseFloat(v);
@@ -45,23 +41,6 @@ async function tfl() {
       videoType: props.videoUrl ? 'mp4' : null,
       source: 'Transport for London',
       region: 'London, UK',
-    }];
-  });
-}
-
-async function ontario() {
-  const cams = await getJSON('https://511on.ca/api/v2/get/cameras');
-  return cams.flatMap((c) => {
-    const view = (c.Views ?? []).find((v) => v.Status === 'Enabled' && v.Url);
-    if (!view) return [];
-    return [{
-      id: `on:${c.Id}`,
-      name: c.Location || c.Roadway || `Camera ${c.Id}`,
-      lat: num(c.Latitude), lon: num(c.Longitude),
-      img: view.Url,
-      video: null, videoType: null,
-      source: 'Ontario 511',
-      region: 'Ontario, Canada',
     }];
   });
 }
@@ -100,31 +79,13 @@ async function caltrans() {
   return out;
 }
 
-async function newZealand() {
-  const xml = await getText('https://trafficnz.info/service/traffic/rest/4/cameras/all');
-  const blocks = xml.match(/<camera>[\s\S]*?<\/camera>/g) ?? [];
-  return blocks.flatMap((b) => {
-    const img = tag(b, 'imageUrl');
-    if (!img || tag(b, 'offline') === 'true') return [];
-    return [{
-      id: `nz:${tag(b, 'id')}`,
-      name: tag(b, 'description') ?? 'NZ camera',
-      lat: num(tag(b, 'latitude')), lon: num(tag(b, 'longitude')),
-      img: img.startsWith('http') ? img : `https://trafficnz.info${img}`,
-      video: null, videoType: null,
-      source: 'NZ Transport Agency',
-      region: 'New Zealand',
-    }];
-  });
-}
-
 // --- run ---------------------------------------------------------------
 
+// Ontario 511 and the NZ Transport Agency were dropped on 2026-09-07: both
+// publish stills only, and this wall is video-only.
 const SOURCES = [
   ['Transport for London', tfl],
-  ['Ontario 511', ontario],
   ['Caltrans', caltrans],
-  ['NZ Transport Agency', newZealand],
 ];
 
 const collected = [];
@@ -139,12 +100,99 @@ for (const [label, fn] of SOURCES) {
   }
 }
 
+// --- placeholder rejection ----------------------------------------------
+//
+// Agencies keep a camera "available" while serving a stand-in image: TfL sends
+// a grey "camera in use keeping London moving" card and a white "Temporarily
+// Unavailable" one. These load with HTTP 200, so onerror never fires, and they
+// are the same dimensions as real frames, so size will not separate them. They
+// are not byte-identical either — the pixels match but the files differ.
+//
+// What does separate them is colour. They are synthetic text on a flat ground,
+// so they are perfectly greyscale, while a real street scene always has some
+// colour in it. Measured across all 798 TfL cameras: placeholders sit at
+// exactly 0.00 mean channel spread, the next real camera at 2.16, median 11.56.
+// Caltrans shows the same gap with no monochrome-at-night false positives.
+//
+// The browser cannot do this — S3 sends no CORS headers, so the canvas would be
+// tainted and the pixels unreadable. It has to happen here, at build time.
+
+const FFMPEG = process.env.FFMPEG ?? 'ffmpeg';
+const SAT_THRESHOLD = 1.0;
+
+function haveFfmpeg() {
+  try {
+    execFileSync(FFMPEG, ['-version'], { stdio: 'ignore' });
+    return true;
+  } catch { return false; }
+}
+
+/**
+ * Mean per-pixel colour spread over an 8x8 downsample. 0 means greyscale.
+ * Async on purpose: execFileSync blocks the event loop, which quietly turns
+ * the worker pool below into a serial queue and takes the run from one minute
+ * to well over ten.
+ */
+function saturationOf(buf) {
+  const N = 8;
+  return new Promise((resolve) => {
+    const ff = spawn(FFMPEG, [
+      '-hide_banner', '-loglevel', 'error', '-f', 'image2pipe', '-i', 'pipe:0',
+      '-vf', `scale=${N}:${N}`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1',
+    ]);
+    const chunks = [];
+    ff.stdout.on('data', (d) => chunks.push(d));
+    ff.on('error', () => resolve(null));
+    ff.on('close', () => resolve(measure(Buffer.concat(chunks), N)));
+    ff.stdin.on('error', () => {});
+    ff.stdin.end(buf);
+  });
+}
+
+function measure(px, N) {
+  if (px.length < N * N * 3) return null;
+  let sum = 0;
+  for (let i = 0; i < N * N; i++) {
+    const r = px[i * 3], g = px[i * 3 + 1], b = px[i * 3 + 2];
+    sum += Math.max(r, g, b) - Math.min(r, g, b);
+  }
+  return sum / (N * N);
+}
+
+async function dropPlaceholders(list) {
+  if (!haveFfmpeg()) {
+    console.warn('  ffmpeg not found — skipping placeholder rejection');
+    return list;
+  }
+  const keep = [];
+  let dropped = 0, unreachable = 0;
+  const queue = [...list];
+  await Promise.all(Array.from({ length: 24 }, async () => {
+    while (queue.length) {
+      const c = queue.shift();
+      try {
+        const res = await fetch(c.img, { signal: AbortSignal.timeout(TIMEOUT) });
+        if (!res.ok) { unreachable++; continue; }
+        const sat = await saturationOf(Buffer.from(await res.arrayBuffer()));
+        // an unreadable image is kept: better a rare bad tile than dropping a
+        // working camera because ffmpeg choked on one frame
+        if (sat !== null && sat < SAT_THRESHOLD) { dropped++; continue; }
+        keep.push(c);
+      } catch { unreachable++; }
+    }
+  }));
+  console.log(`  rejected ${dropped} placeholder images, ${unreachable} unreachable`);
+  return keep;
+}
+
 // Cameras that only publish stills are dropped: a wall of still images reads as
 // stock photography, which is the one thing this must not look like. Every
 // camera kept here can actually play. This removes Ontario 511 and New Zealand
 // entirely, since neither publishes video.
-const cameras = collected.filter((c) => c.video);
-console.log(`\n  dropped ${collected.length - cameras.length} stills-only cameras`);
+const playable = collected.filter((c) => c.video);
+console.log(`\n  dropped ${collected.length - playable.length} stills-only cameras`);
+console.log('  checking every remaining camera for placeholder images...');
+const cameras = await dropPlaceholders(playable);
 
 // Interleave sources so the first screenful spans the world rather than
 // showing 40 consecutive London side-streets. This is presentation, but it is
