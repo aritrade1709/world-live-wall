@@ -41,6 +41,8 @@ async function tfl() {
       name: p.commonName,
       lat: num(p.lat), lon: num(p.lon),
       img: props.imageUrl,
+      video: props.videoUrl ?? null,
+      videoType: props.videoUrl ? 'mp4' : null,
       source: 'Transport for London',
       region: 'London, UK',
     }];
@@ -57,6 +59,7 @@ async function ontario() {
       name: c.Location || c.Roadway || `Camera ${c.Id}`,
       lat: num(c.Latitude), lon: num(c.Longitude),
       img: view.Url,
+      video: null, videoType: null,
       source: 'Ontario 511',
       region: 'Ontario, Canada',
     }];
@@ -80,12 +83,15 @@ async function caltrans() {
     for (const row of r.value.rows) {
       const c = row.cctv;
       const url = c?.imageData?.static?.currentImageURL;
+      const stream = c?.imageData?.streamingVideoURL || null;
       if (!url || !c?.inService || c.inService === 'false') continue;
       out.push({
         id: `ca:${r.value.d}:${c.index}`,
         name: c.location?.locationName ?? 'Caltrans camera',
         lat: num(c.location?.latitude), lon: num(c.location?.longitude),
         img: url,
+        video: stream,
+        videoType: stream ? 'hls' : null,
         source: 'Caltrans',
         region: 'California, USA',
       });
@@ -105,6 +111,7 @@ async function newZealand() {
       name: tag(b, 'description') ?? 'NZ camera',
       lat: num(tag(b, 'latitude')), lon: num(tag(b, 'longitude')),
       img: img.startsWith('http') ? img : `https://trafficnz.info${img}`,
+      video: null, videoType: null,
       source: 'NZ Transport Agency',
       region: 'New Zealand',
     }];
@@ -151,6 +158,7 @@ const payload = {
   count: shuffled.length,
   sources: [...bySource].map(([name, list]) => ({
     name, count: list.length, region: list[0].region,
+    withVideo: list.filter((c) => c.video).length,
   })),
   cameras: shuffled,
 };
@@ -159,4 +167,6 @@ writeFileSync(
   new URL('../public/cameras.json', import.meta.url),
   JSON.stringify(payload)
 );
+const vids = shuffled.filter((c) => c.video).length;
 console.log(`\n  total ${shuffled.length} cameras from ${bySource.size} sources`);
+console.log(`  ${vids} with live video, ${shuffled.length - vids} stills only`);

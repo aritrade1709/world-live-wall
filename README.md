@@ -1,8 +1,29 @@
 # World Live Wall
 
-> 4106 public traffic cameras from four countries, live, on one page.
+> 4,588 public traffic cameras from four countries. 2,753 of them stream live video.
 
 **[Live demo](https://aritrade1709.github.io/world-live-wall/)** · Built in one session with [Claude Code](https://claude.com/claude-code), 6 September 2026
+
+## Live video
+
+2,753 of these cameras publish real video, not just stills, and clicking any tile
+plays it:
+
+- **Transport for London** writes a short mp4 loop beside every still. A plain
+  `<video>` plays it cross-origin — no CORS involved, same as an `<img>`.
+- **Caltrans** runs live HLS at up to 720p and sends `Access-Control-Allow-Origin: *`.
+  Safari and Chrome on macOS play `.m3u8` natively; everywhere else hls.js is
+  loaded lazily, the first time an HLS camera is opened, so the library never
+  reaches anyone who only browses stills.
+
+Ontario and New Zealand publish stills only; those tiles refresh on the schedule
+below. Tiles that can stream are marked `LIVE`.
+
+Nothing plays video in the grid itself. Forty simultaneous streams is precisely
+the stall the scheduler exists to prevent — video is on demand, hover for a
+preview and click for the full feed. The lightbox shows the refreshing still
+first and upgrades to video once the stream is actually running, because an HLS
+handshake takes a second or two and a blank box reads as broken.
 
 ## The hard part
 
@@ -62,7 +83,8 @@ pnpm cameras    # re-resolve the camera catalogue from source agencies
 
 ## Stack
 
-Vite + TypeScript, no framework and no dependencies at runtime. Deployed as a
+Vite + TypeScript, no framework. The only runtime dependency is hls.js, loaded
+lazily from a CDN and only for browsers without native HLS. Deployed as a
 static site to GitHub Pages.
 
 ## Data sources
@@ -72,10 +94,10 @@ private or unsecured camera.
 
 | Source | Cameras | Region |
 |---|---|---|
-| [Transport for London](https://api.tfl.gov.uk/) | 798 | London, UK |
-| [Ontario 511](https://511on.ca/) | 944 | Ontario, Canada |
-| [Caltrans](https://cwwp2.dot.ca.gov/) | 2,115 | California, USA |
-| [NZ Transport Agency](https://trafficnz.info/) | 249 | New Zealand |
+| [Transport for London](https://api.tfl.gov.uk/) | 798 (all with video) | London, UK |
+| [Ontario 511](https://511on.ca/) | 944 (stills) | Ontario, Canada |
+| [Caltrans](https://cwwp2.dot.ca.gov/) | 2,594 (1,955 with video) | California, USA |
+| [NZ Transport Agency](https://trafficnz.info/) | 252 (stills) | New Zealand |
 
 Camera images are loaded directly from each agency and are not cached,
 proxied or restreamed by this project.

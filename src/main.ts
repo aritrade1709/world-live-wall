@@ -1,10 +1,13 @@
 import { OriginPool, bustCache, phaseOffset } from './scheduler';
+import { play, type Playback } from './video';
 import './style.css';
 
 interface Camera {
   id: string; name: string;
   lat: number | null; lon: number | null;
   img: string; source: string; region: string;
+  video: string | null;
+  videoType: 'mp4' | 'hls' | null;
 }
 
 const REFRESH_MS = 15_000;
@@ -55,6 +58,13 @@ cameras.forEach((cam, index) => {
   badge.textContent = cam.region;
 
   el.append(img, cap, badge);
+
+  if (cam.video) {
+    const live = document.createElement('span');
+    live.className = 'live';
+    live.textContent = 'LIVE';
+    el.append(live);
+  }
   frag.append(el);
 
   const tile: Tile = {
@@ -63,6 +73,17 @@ cameras.forEach((cam, index) => {
     nextAt: 0, nonce: 0,
   };
   el.addEventListener('click', () => openLightbox(tile));
+
+  if (cam.videoType === 'mp4' && matchMedia('(hover: hover)').matches) {
+    let timer: number | undefined;
+    el.addEventListener('pointerenter', () => {
+      timer = setTimeout(() => startHover(tile), 220) as unknown as number;
+    });
+    el.addEventListener('pointerleave', () => {
+      clearTimeout(timer);
+      stopHover(tile);
+    });
+  }
   tiles.push(tile);
 });
 
@@ -177,35 +198,102 @@ regions.forEach((region) => {
   filters.append(b);
 });
 
+// --- hover preview -----------------------------------------------------
+
+let hoverTile: Tile | null = null;
+let hoverVideo: HTMLVideoElement | null = null;
+let hoverPlayback: Playback | null = null;
+
+async function startHover(tile: Tile) {
+  if (!tile.cam.video || tile.dead) return;
+  stopHover(hoverTile);
+  hoverTile = tile;
+
+  const v = document.createElement('video');
+  v.className = 'tile-video';
+  tile.el.append(v);
+  hoverVideo = v;
+
+  try {
+    const pb = await play(v, tile.cam.video, 'mp4');
+    // the pointer may have left while the clip was loading
+    if (hoverTile !== tile) { pb.stop(); v.remove(); return; }
+    hoverPlayback = pb;
+    if (v.paused) { pb.stop(); v.remove(); return; }  // never show a frozen frame
+    v.classList.add('on');
+  } catch {
+    v.remove();
+  }
+}
+
+function stopHover(tile: Tile | null) {
+  if (!tile || hoverTile !== tile) return;
+  hoverPlayback?.stop();
+  hoverVideo?.remove();
+  hoverPlayback = null;
+  hoverVideo = null;
+  hoverTile = null;
+}
+
 // --- lightbox ----------------------------------------------------------
 
 const box = document.getElementById('lightbox')!;
 const boxImg = document.getElementById('lightbox-img') as HTMLImageElement;
+const boxVideo = document.getElementById('lightbox-video') as HTMLVideoElement;
+const boxBadge = document.getElementById('lightbox-badge')!;
 const boxName = document.getElementById('lightbox-name')!;
 const boxMeta = document.getElementById('lightbox-meta')!;
 let boxTile: Tile | null = null;
 let boxTimer: number | undefined;
+let boxPlayback: Playback | null = null;
 
-function openLightbox(tile: Tile) {
+async function openLightbox(tile: Tile) {
+  stopHover(hoverTile);
   boxTile = tile;
   boxName.textContent = tile.cam.name;
   const coords = tile.cam.lat != null && tile.cam.lon != null
     ? ` · ${tile.cam.lat.toFixed(3)}, ${tile.cam.lon.toFixed(3)}`
     : '';
   boxMeta.textContent = `${tile.cam.region} · ${tile.cam.source}${coords}`;
-  boxImg.src = tile.img.src || bustCache(tile.cam.img, 1);
   box.hidden = false;
+
+  // show the still immediately, then upgrade to video if this camera has it —
+  // an HLS handshake takes a second or two and a blank box reads as broken
+  boxImg.src = tile.img.src || bustCache(tile.cam.img, 1);
+  boxImg.hidden = false;
+  boxVideo.hidden = true;
+  boxBadge.hidden = true;
 
   clearInterval(boxTimer);
   boxTimer = setInterval(() => {
-    if (boxTile) boxImg.src = bustCache(boxTile.cam.img, Date.now());
+    if (boxTile && boxVideo.hidden) boxImg.src = bustCache(boxTile.cam.img, Date.now());
   }, LIGHTBOX_REFRESH_MS) as unknown as number;
+
+  if (!tile.cam.video || !tile.cam.videoType) return;
+  try {
+    const pb = await play(boxVideo, tile.cam.video, tile.cam.videoType);
+    if (boxTile !== tile) { pb.stop(); return; }  // closed while loading
+    boxPlayback = pb;
+    boxVideo.hidden = false;
+    boxImg.hidden = true;
+    // Only claim LIVE if it is genuinely running. Autoplay can be refused
+    // (background tab, browser policy), and a frozen first frame under a LIVE
+    // badge is worse than an honest play button.
+    boxBadge.hidden = boxVideo.paused;
+    boxVideo.controls = boxVideo.paused;
+  } catch {
+    // stream is down; the refreshing still is already on screen
+  }
 }
 
 function closeLightbox() {
   box.hidden = true;
   boxTile = null;
   clearInterval(boxTimer);
+  boxPlayback?.stop();   // otherwise the stream keeps downloading in the background
+  boxPlayback = null;
+  boxVideo.hidden = true;
+  boxImg.hidden = false;
 }
 
 box.addEventListener('click', closeLightbox);
