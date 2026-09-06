@@ -103,30 +103,26 @@ for (const [label, fn] of SOURCES) {
 
 // --- placeholder rejection ----------------------------------------------
 //
-// Agencies keep a camera marked "available" while serving a stand-in image.
-// Caltrans sends a white "Temporarily Unavailable" card, TfL a grey "camera in
-// use keeping London moving" one. They arrive with HTTP 200, so onerror never
-// fires; they are the same dimensions as real frames, so size does not separate
-// them; and they are not byte-identical between cameras, so hashing the file
-// does not either.
+// Agencies keep a camera marked "available" while serving a stand-in image:
+// Caltrans a white "Temporarily Unavailable" card, TfL a grey "camera in use
+// keeping London moving" one. They arrive with HTTP 200, so onerror never
+// fires; they match real frame dimensions, so size does not separate them; and
+// they are not byte-identical between cameras, so hashing the file does not
+// either.
 //
-// Two signals catch them, and both need the pixels — which the browser cannot
-// read, because these hosts send no CORS headers and the canvas would be
-// tainted. So it happens here, at build time, with ffmpeg.
+// Comparing pixels does separate them, and that has to happen here rather than
+// in the browser: these hosts send no CORS headers, so a canvas would be
+// tainted and unreadable. Two checks, both fed by an 8x8 ffmpeg downsample.
 //
-//   1. DUPLICATE FINGERPRINTS. Two real cameras never produce an identical 8x8
-//      downsample; two cameras showing the same placeholder always do. On the
-//      first full run this caught 514 of 2,924 cameras, the largest single
-//      group being 155 identical images.
+//   1. DUPLICATE FINGERPRINTS — the primary signal. Two working cameras never
+//      produce an identical downsample; two cameras showing the same
+//      placeholder always do.
 //
-//   2. FLAT GREYSCALE. Catches a placeholder that happens to be showing on only
-//      one camera, where there is no duplicate to pair it with. Synthetic text
-//      on a flat ground measures 0.00 mean channel spread; the next real camera
-//      measures 2.16, against a median of 11.56.
-//
-// Signal 1 does the heavy lifting; signal 2 is the backstop. An earlier version
-// had only signal 2 and missed every Caltrans placeholder, because that card is
-// white with BLUE text and therefore not greyscale at all.
+//   2. FLAT GREYSCALE — the backstop, for a placeholder showing on a single
+//      camera with no duplicate to pair it against. Synthetic text on a flat
+//      ground measures 0 mean channel spread, where real scenes sit around 11.
+//      Note this alone is not sufficient: the Caltrans card is white with blue
+//      text and is not greyscale.
 
 const FFMPEG = process.env.FFMPEG ?? 'ffmpeg';
 const SAT_THRESHOLD = 1.0;
