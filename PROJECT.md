@@ -2,8 +2,8 @@
 
 **Pitch:** 4106 public traffic cameras from four countries, live, on one page.
 **Status:** `built`
-**Live:** https://aritrade1709.github.io/world-live-wall/ (pending first Actions run)
-**Repo:** pending
+**Live:** https://aritficialintelligence.com/world-live-wall/ — **deployed but unreachable, DNS blocked** (see below)
+**Repo:** https://github.com/aritrade1709/world-live-wall
 **Scores:** IMP 5/5 · UNH 4/5 · Effort M
 
 ## The one hard part
@@ -16,7 +16,18 @@ scheduler — viewport-gated, per-origin capped, phase-offset — not a grid of
 
 ## Next action
 
-Record the episode. `/make-episode` for script, deck and captions.
+**Blocked on DNS, and this blocks every future project too.** The Pages deploy
+succeeded, but `aritficialintelligence.com` resolves to GoDaddy parking
+(76.223.67.189 / 13.248.213.45) and serves a lander page. Because
+`aritrade1709.github.io` has that domain as its CNAME, GitHub 301s *every*
+project site there — so `aritrade1709.github.io/world-live-wall/` is dead too.
+
+Fix at GoDaddy DNS for `aritficialintelligence.com`:
+- Replace the two A records with the four GitHub Pages IPs:
+  185.199.108.153, 185.199.109.153, 185.199.110.153, 185.199.111.153
+- CNAME `www` -> `aritrade1709.github.io`
+
+Then: record the episode. `/make-episode` for script, deck and captions.
 
 ## Run it
 

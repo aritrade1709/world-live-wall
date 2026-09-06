@@ -2,7 +2,7 @@
 
 > 4106 public traffic cameras from four countries, live, on one page.
 
-**[Live demo](https://aritrade1709.github.io/world-live-wall/)** · Built in one session with [Claude Code](https://claude.com/claude-code), 6 September 2026
+**[Live demo](https://aritficialintelligence.com/world-live-wall/)** · Built in one session with [Claude Code](https://claude.com/claude-code), 6 September 2026
 
 ## The hard part
 
