@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>World Live Wall — every public traffic camera, at once</title>
+<meta name="description" content="Thousands of live public traffic cameras from London, Ontario, California and New Zealand, refreshing on one page.">
+</head>
+<body>
+  <header>
+    <div class="bar">
+      <h1><span class="dot"></span>World Live Wall</h1>
+      <div class="stats">
+        <span><b id="stat-live">0</b> live</span>
+        <span><b id="stat-total">0</b> cameras</span>
+        <span class="sched"><b id="stat-flight">0</b> in flight</span>
+        <span class="sched"><b id="stat-queued">0</b> queued</span>
+      </div>
+    </div>
+    <nav id="filters"></nav>
+  </header>
+
+  <main id="grid"></main>
+
+  <div id="lightbox" hidden>
+    <img id="lightbox-img" alt="">
+    <div class="meta">
+      <strong id="lightbox-name"></strong>
+      <span id="lightbox-meta"></span>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

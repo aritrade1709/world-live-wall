@@ -1,0 +1,21 @@
+{
+  "name": "world-live-wall",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "cameras": "node scripts/fetch-cameras.mjs",
+    "test": "node test/scheduler.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
