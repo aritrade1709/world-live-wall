@@ -3,3 +3,7 @@ dist/
 .DS_Store
 *.log
 .vite
+
+# working material for the video — stays local, never published
+PROJECT.md
+episode/

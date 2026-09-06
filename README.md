@@ -1,123 +1,126 @@
 # World Live Wall
 
-> 2,300 public traffic cameras streaming live video, from London and California, on one page.
+**[aritrade1709.github.io/world-live-wall](https://aritrade1709.github.io/world-live-wall/)**
 
-**[Live demo](https://aritrade1709.github.io/world-live-wall/)** · Built in one session with [Claude Code](https://claude.com/claude-code), 6 September 2026
+2,300 public traffic cameras from London and California, streaming live video on
+a single page.
 
-## Live video
+## What it is
 
-Every camera here plays. Cameras that publish only still images were dropped
-deliberately — a wall of stills reads as stock photography, which is the one
-thing this must not look like.
+Transport agencies publish thousands of roadside cameras for anyone to watch,
+but each one lives behind its own map interface, one camera at a time. This puts
+all of them on one wall.
 
-- **Transport for London** writes a short mp4 loop beside every still. A plain
-  `<video>` plays it cross-origin — no CORS involved, same as an `<img>`.
-- **Caltrans** runs live HLS at up to 720p and sends `Access-Control-Allow-Origin: *`.
-  Safari and Chrome on macOS play `.m3u8` natively; everywhere else hls.js is
-  loaded lazily, the first time an HLS camera is opened, so the library never
-  reaches anyone who only browses the grid.
+Every camera on the wall is a live feed. The grid shows each one as a still that
+refreshes every fifteen seconds; clicking a tile opens its video. Because the
+cameras span an eight-hour time difference, the wall usually shows London in
+darkness beside California in daylight.
 
-The grid itself shows refreshing stills, and video plays on demand — hover for a
-preview of the mp4 sources, click for the full feed. Forty simultaneous streams
-is precisely the stall the scheduler below exists to prevent. The lightbox shows
-the still first and upgrades to video once the stream is actually running,
-because an HLS handshake takes a second or two and a blank box reads as broken.
+## Using it
 
-## The hard part
+- **Click any tile** to open the full feed. Caltrans cameras play a live stream;
+  London cameras play a short looping clip. Press `Escape` or click anywhere to
+  close.
+- **Hover a London tile** to preview its clip in place.
+- **Filter by region** with the buttons at the top.
+- The header counts how many cameras are on screen, and how many image requests
+  are currently in flight or queued.
 
-The interesting problem here is not fetching cameras. It is that a browser allows
-roughly **six concurrent connections per origin** on HTTP/1.1, and 1,514 of these
-2,300 cameras — two thirds of them — live on a single host, `cwwp2.dot.ca.gov`.
+## How it works
 
-Point `<img>` tags at all of them and the requests queue six at a time. Tiles arrive
-minutes stale, the tab stalls while the backlog drains, and — because every camera
-needs a cache-busting query string to return a fresh frame — none of it is served
-from cache. Scrolling makes it worse: each new row piles more work behind a queue
-that is already thousands deep.
+### Connection scheduling
 
-So the wall is a scheduler, not a grid. Three rules:
+The wall holds 2,300 cameras, and two thirds of them serve images from a single
+host. A browser allows roughly six concurrent connections per origin over
+HTTP/1.1, so requesting them naively queues thousands of images six at a time:
+tiles arrive minutes stale and the page stalls while the backlog drains. Every
+refresh also needs a cache-busting query string to get a new frame, so none of it
+is served from cache.
 
-1. **Only what is on screen is live.** An `IntersectionObserver` with a one-screen
-   `rootMargin` decides which tiles are eligible; scrolling away cancels queued work
-   for tiles that left the viewport.
-2. **Concurrency is capped per origin and globally** (4 and 24). Requests are keyed
-   by hostname, so a slow agency cannot starve a fast one — without this, all 786
-   London cameras wait behind Caltrans' backlog.
-3. **Refreshes are spread across the interval.** Each tile gets a deterministic
-   phase offset, so a screenful of 40 cameras refreshes as a steady trickle rather
-   than 40 simultaneous requests every 15 seconds.
+The wall is therefore a request scheduler rather than a grid of `<img>` tags:
+
+- **Only what is on screen is live.** An `IntersectionObserver` with a
+  one-screen margin decides which tiles are eligible, and scrolling away cancels
+  queued work for tiles that have left the viewport.
+- **Concurrency is capped per origin and globally**, at four and twenty-four.
+  Requests are keyed by hostname, so a slow agency cannot starve a fast one.
+- **Refreshes are spread across the interval.** Each tile gets a deterministic
+  phase offset, so a screenful refreshes as a steady trickle instead of forty
+  simultaneous requests every fifteen seconds.
 
 Images are decoded off-DOM and swapped in only once ready, so a tile never blanks
-while its replacement loads. Requests that hang are timed out at 15s, because a
-dead camera holding a connection slot starves every other camera on its origin.
+while its replacement loads. Requests that hang are abandoned after fifteen
+seconds, since a dead camera holding a connection slot starves every other camera
+on its origin.
 
-The header shows in-flight and queued counts live, which is the honest way to show
-that the scheduler is doing something.
+### Video
 
-Two smaller decisions worth noting:
+London cameras publish a short mp4 beside every still, which a plain `<video>`
+element plays directly. Caltrans cameras publish live HLS; Safari and Chrome on
+macOS play `.m3u8` natively, and everywhere else hls.js is loaded on demand the
+first time an HLS camera is opened.
 
-- **The camera catalogue is resolved at build time.** None of these agencies send
-  CORS headers on their JSON, so a static page cannot fetch the lists at runtime.
-  Images are exempt — an `<img>` tag is not a CORS request — so the build script
-  resolves the catalogue, commits it, and the browser loads the pictures directly.
-  This is also what lets the app run offline on a clean clone.
-- **Placeholder frames are rejected at build time.** Agencies keep a camera
-  marked "available" while serving a stand-in: Caltrans a white *"Temporarily
-  Unavailable"* card, TfL a grey *"camera in use keeping London moving"* one.
-  They arrive with HTTP 200, so `onerror` never fires; they match real frame
-  dimensions, so size does not separate them; and they are not byte-identical
-  between cameras, so hashing the file does not either. What does separate them
-  is that **two real cameras never produce an identical 8x8 downsample, and two
-  cameras showing the same placeholder always do** — the last run found one group
-  of 155 identical images. A flat-greyscale check backstops the case where a
-  placeholder is showing on only one camera. The browser cannot do any of this,
-  since these hosts send no CORS headers and the canvas would be tainted, so the
-  build pipes every image through ffmpeg. Last run rejected 432 duplicates and
-  19 flat frames — 451 of 2,751, about one in six.
+Video plays only on request, never in the grid — forty simultaneous streams would
+reintroduce exactly the stall the scheduler prevents. The lightbox shows the
+still first and upgrades to video once the stream is actually running, because an
+HLS handshake takes a second or two.
 
-- **Sources are interleaved.** Sorting by source would show 40 consecutive London
-  side-streets on first paint. Interleaving means the first screen spans two
-  continents and an eight-hour time difference at once — London in the evening
-  against California at midday — which is the entire point.
+### Building the camera catalogue
 
-## Run it locally
+`pnpm cameras` resolves the camera list from each agency and writes
+`public/cameras.json`. This happens at build time rather than in the browser
+because the agencies do not send CORS headers on their JSON, so a static page
+cannot fetch the lists at runtime. Images are exempt — an `<img>` tag is not a
+CORS request — so the browser loads the pictures directly.
+
+The build also filters out placeholder frames. Agencies keep a camera listed as
+available while serving a stand-in image: a white *"Temporarily Unavailable"*
+card, or a grey *"camera in use keeping London moving"* one. These arrive with
+HTTP 200 at the same dimensions as real frames and are not byte-identical between
+cameras, so they cannot be caught by error handling, image size, or file hashing.
+
+They are caught by comparing pixels instead. Two working cameras never produce an
+identical 8×8 downsample, while two cameras showing the same placeholder always
+do. Every image is downsampled through ffmpeg and any that share a fingerprint
+are dropped, along with any perfectly flat greyscale frame. A typical run rejects
+about one image in six.
+
+## Running locally
 
 ```bash
-pnpm i
+pnpm install
 pnpm dev
 ```
 
 No environment variables, no API keys, no accounts.
 
-```bash
-pnpm test       # scheduler tests
-pnpm cameras    # re-resolve the camera catalogue from source agencies
-```
+| Command | |
+|---|---|
+| `pnpm dev` | development server |
+| `pnpm build` | production build |
+| `pnpm test` | scheduler tests |
+| `pnpm cameras` | rebuild the camera catalogue from the agencies |
 
-## Stack
+`pnpm cameras` needs ffmpeg on your `PATH` (or set `FFMPEG=/path/to/ffmpeg`) for
+placeholder filtering, and takes a few minutes because it fetches and measures
+every image. Without ffmpeg it still works, skipping that step.
 
-Vite + TypeScript, no framework. The only runtime dependency is hls.js, loaded
-lazily from a CDN and only for browsers without native HLS. Deployed as a
-static site to GitHub Pages.
+## Built with
+
+Vite and TypeScript, no framework. hls.js is the only runtime dependency, loaded
+from a CDN and only by browsers without native HLS support. Deployed as a static
+site to GitHub Pages.
 
 ## Data sources
 
-Both agencies publish these cameras deliberately and openly. Nothing here touches
-a private or unsecured camera. Ontario 511 and the NZ Transport Agency were
-dropped when the wall moved to video-only — both publish stills, neither
-publishes video.
+Both agencies publish these cameras openly and without an API key. Camera images
+and video are loaded directly from each agency; nothing is cached, proxied or
+restreamed here.
 
 | Source | Cameras | Region | Video |
 |---|---|---|---|
-| [Transport for London](https://api.tfl.gov.uk/) | 786 | London, UK | mp4 loops |
+| [Transport for London](https://api.tfl.gov.uk/) | 786 | London, UK | mp4 clips |
 | [Caltrans](https://cwwp2.dot.ca.gov/) | 1,514 | California, USA | live HLS |
-
-Camera images are loaded directly from each agency and are not cached,
-proxied or restreamed by this project.
-
-## Why this exists
-
-Part of a series: one small project a day, each explained in 30 seconds.
 
 ## License
 
