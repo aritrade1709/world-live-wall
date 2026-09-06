@@ -59,12 +59,6 @@ cameras.forEach((cam, index) => {
 
   el.append(img, cap, badge);
 
-  if (cam.video) {
-    const live = document.createElement('span');
-    live.className = 'live';
-    live.textContent = 'LIVE';
-    el.append(live);
-  }
   frag.append(el);
 
   const tile: Tile = {

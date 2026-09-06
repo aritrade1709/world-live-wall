@@ -127,17 +127,24 @@ const SOURCES = [
   ['NZ Transport Agency', newZealand],
 ];
 
-const cameras = [];
+const collected = [];
 for (const [label, fn] of SOURCES) {
   try {
     const got = await fn();
-    cameras.push(...got);
+    collected.push(...got);
     console.log(`  ${label.padEnd(22)} ${String(got.length).padStart(5)}`);
   } catch (err) {
     // A dead agency must not fail the build — the committed catalogue still works.
     console.warn(`  ${label.padEnd(22)}  FAILED: ${err.message}`);
   }
 }
+
+// Cameras that only publish stills are dropped: a wall of still images reads as
+// stock photography, which is the one thing this must not look like. Every
+// camera kept here can actually play. This removes Ontario 511 and New Zealand
+// entirely, since neither publishes video.
+const cameras = collected.filter((c) => c.video);
+console.log(`\n  dropped ${collected.length - cameras.length} stills-only cameras`);
 
 // Interleave sources so the first screenful spans the world rather than
 // showing 40 consecutive London side-streets. This is presentation, but it is
@@ -167,6 +174,4 @@ writeFileSync(
   new URL('../public/cameras.json', import.meta.url),
   JSON.stringify(payload)
 );
-const vids = shuffled.filter((c) => c.video).length;
-console.log(`\n  total ${shuffled.length} cameras from ${bySource.size} sources`);
-console.log(`  ${vids} with live video, ${shuffled.length - vids} stills only`);
+console.log(`  total ${shuffled.length} playable cameras from ${bySource.size} sources`);

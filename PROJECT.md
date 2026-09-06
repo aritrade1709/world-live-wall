@@ -1,6 +1,6 @@
 # 001 — World Live Wall
 
-**Pitch:** 4,588 public traffic cameras from four countries; 2,753 stream live video.
+**Pitch:** 2,947 public traffic cameras streaming live video, from London and California, on one page.
 **Status:** `built`
 **Live:** https://aritrade1709.github.io/world-live-wall/
 **Repo:** https://github.com/aritrade1709/world-live-wall
@@ -8,11 +8,11 @@
 
 ## The one hard part
 
-Browsers allow ~6 concurrent connections per origin on HTTP/1.1, and 944 of the
-cameras are on a single host. Naive refreshing queues them six at a time: tiles
-arrive minutes stale and the tab stalls. The wall is therefore a request
-scheduler — viewport-gated, per-origin capped, phase-offset — not a grid of
-`<img>` tags.
+Browsers allow ~6 concurrent connections per origin on HTTP/1.1, and 2,149 of
+the 2,947 cameras — 73% — are on one host (`cwwp2.dot.ca.gov`). Naive refreshing
+queues them six at a time: tiles arrive minutes stale and the tab stalls. The
+wall is therefore a request scheduler — viewport-gated, per-origin capped,
+phase-offset — not a grid of `<img>` tags.
 
 ## Next action
 
@@ -30,6 +30,8 @@ pnpm cameras           # re-resolve catalogue from agencies
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-09-07 | Stills-only cameras dropped; video-capable only | Aritra's call. A wall of stills reads as stock photography. Cost: Ontario 511 and NZ leave entirely, so coverage narrows from four regions to two (London and California). The concurrency story got stronger, not weaker — 73% of what remains is on one origin. |
+| 2026-09-07 | Removed the per-tile LIVE badge | Once every camera streams, a badge on every tile carries no information and covers the picture. The header states it once. |
 | 2026-09-07 | Added video playback on click and hover | Stills alone read as stock photography and undercut the credibility of the whole thing. 2,753 cameras publish real video; TfL as mp4 loops, Caltrans as live HLS. |
 | 2026-09-07 | Video on demand only, never in the grid | Forty concurrent streams is exactly the stall the scheduler exists to prevent. Hover previews mp4 only (~170 kB, instant); HLS is click-only. |
 | 2026-09-07 | hls.js lazy-loaded from CDN, native HLS preferred | Safari and macOS Chrome play .m3u8 natively; loading 150 kB for them is waste. Verified both paths in real Chrome, forcing the fallback by denying canPlayType. |
@@ -70,7 +72,7 @@ pnpm cameras           # re-resolve catalogue from agencies
 
 | Source | Free | Notes |
 |---|---|---|
-| Transport for London | yes, no key | S3-hosted JPEGs, ~798 available of 890 listed |
-| Ontario 511 | yes, no key | JPEG per view id; single origin, the concurrency bottleneck |
-| Caltrans | yes, no key | 12 district endpoints; largest images |
-| NZ Transport Agency | yes, no key | XML catalogue, relative image paths |
+| Transport for London | yes, no key | 798 cameras; mp4 loop + still per camera, both on S3 |
+| Caltrans | yes, no key | 2,149 with HLS across 12 districts; single image origin, the concurrency bottleneck |
+| ~~Ontario 511~~ | — | dropped 2026-09-07: stills only |
+| ~~NZ Transport Agency~~ | — | dropped 2026-09-07: stills only |
